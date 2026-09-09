@@ -180,7 +180,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     setState(() {
       _isListening = false;
       _isProcessingAI = true;
-      _statusMessage = 'Interpretando con Gemini 1.5 Flash...';
+      _statusMessage = 'Interpretando con Gemini...';
     });
 
     try {
@@ -191,7 +191,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
         );
       }
 
-      // Procesar orden con Gemini 1.5 Flash
+      // Procesar orden con Gemini
       final reminder = await _geminiService.parseSpokenText(input);
 
       // Programar notificación en el sistema
@@ -432,7 +432,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             const SizedBox(height: 12),
             Text(
               'Presiona el micrófono inferior y di lo que quieres recordar.\n'
-              'Gemini 1.5 Flash detectará la fecha y hora automáticamente.',
+              'Gemini detectará la fecha y hora automáticamente.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,
