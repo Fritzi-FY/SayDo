@@ -287,7 +287,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: Image.asset(
-                  'assets/icon/app_icon.jpg',
+                  'assets/icon/app_icon.png',
                   fit: BoxFit.cover,
                 ),
               ),
