@@ -96,10 +96,41 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
 
   final List<Task> _tasks = [];
   String? _selectedCategory; // null = Todas
+  String _statusFilter = 'all'; // 'all' | 'pending' | 'completed'
+  bool _isSearching = false;
+  final TextEditingController _searchController = TextEditingController();
+  String _searchQuery = '';
   bool _isListening = false;
   bool _isProcessingAI = false;
   String _spokenText = '';
   String _statusMessage = 'Toca el micrófono y di tu recordatorio';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  List<Task> get _filteredTasks {
+    return _tasks.where((t) {
+      if (_statusFilter == 'pending' && t.isCompleted) return false;
+      if (_statusFilter == 'completed' && !t.isCompleted) return false;
+
+      if (_selectedCategory != null && t.category != _selectedCategory) {
+        return false;
+      }
+
+      if (_searchQuery.isNotEmpty) {
+        final q = _searchQuery.toLowerCase();
+        final matchTitle = t.title.toLowerCase().contains(q);
+        final matchCat = t.category.toLowerCase().contains(q);
+        final matchFecha = t.fecha.contains(q);
+        if (!matchTitle && !matchCat && !matchFecha) return false;
+      }
+
+      return true;
+    }).toList();
+  }
 
   @override
   void initState() {
@@ -335,37 +366,84 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 36,
-              height: 36,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(10),
-                boxShadow: [
-                  BoxShadow(
-                    color: colorScheme.shadow.withValues(alpha: 0.08),
-                    blurRadius: 4,
-                    offset: const Offset(0, 2),
+        title: _isSearching
+            ? TextField(
+                controller: _searchController,
+                autofocus: true,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: colorScheme.onSurface,
+                ),
+                decoration: InputDecoration(
+                  hintText: 'Buscar por título o categoría...',
+                  border: InputBorder.none,
+                  hintStyle: TextStyle(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
+                  ),
+                ),
+                onChanged: (val) {
+                  setState(() {
+                    _searchQuery = val.trim();
+                  });
+                },
+              )
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: [
+                        BoxShadow(
+                          color: colorScheme.shadow.withValues(alpha: 0.08),
+                          blurRadius: 4,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Image.asset(
+                        'assets/icon/app_icon.png',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'SayDo',
+                    style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ],
               ),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.asset(
-                  'assets/icon/app_icon.png',
-                  fit: BoxFit.cover,
-                ),
-              ),
+        actions: [
+          if (_isSearching)
+            IconButton(
+              icon: const Icon(Icons.close_rounded),
+              tooltip: 'Cerrar búsqueda',
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _isSearching = false;
+                  _searchQuery = '';
+                  _searchController.clear();
+                });
+              },
+            )
+          else if (_tasks.isNotEmpty)
+            IconButton(
+              icon: const Icon(Icons.search_rounded),
+              tooltip: 'Buscar tareas',
+              onPressed: () {
+                HapticFeedback.lightImpact();
+                setState(() {
+                  _isSearching = true;
+                });
+              },
             ),
-            const SizedBox(width: 10),
-            const Text(
-              'SayDo',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -373,8 +451,8 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             // Banner superior de estado y transcripción en vivo
             _buildStatusHeader(colorScheme),
 
-            // Selector horizontal de categoría
-            if (_tasks.isNotEmpty) _buildCategoryFilterBar(colorScheme),
+            // Filtros de estado y categoría
+            if (_tasks.isNotEmpty) _buildFilterSection(colorScheme),
 
             // Lista de tareas agendadas
             Expanded(
@@ -549,6 +627,83 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     );
   }
 
+  Widget _buildFilterSection(ColorScheme colorScheme) {
+    final pendingCount = _tasks.where((t) => !t.isCompleted).length;
+    final completedCount = _tasks.where((t) => t.isCompleted).length;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 1. Selector de Estado (Todas / Pendientes / Completadas)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+          child: Row(
+            children: [
+              _buildStatusFilterChip(
+                label: 'Todas (${_tasks.length})',
+                isSelected: _statusFilter == 'all',
+                onSelected: () => setState(() => _statusFilter = 'all'),
+                colorScheme: colorScheme,
+              ),
+              const SizedBox(width: 8),
+              _buildStatusFilterChip(
+                label: 'Pendientes ($pendingCount)',
+                isSelected: _statusFilter == 'pending',
+                onSelected: () => setState(() => _statusFilter = 'pending'),
+                colorScheme: colorScheme,
+              ),
+              const SizedBox(width: 8),
+              _buildStatusFilterChip(
+                label: 'Completadas ($completedCount)',
+                isSelected: _statusFilter == 'completed',
+                onSelected: () => setState(() => _statusFilter = 'completed'),
+                colorScheme: colorScheme,
+              ),
+            ],
+          ),
+        ),
+
+        // 2. Selector horizontal de Categorías
+        _buildCategoryFilterBar(colorScheme),
+      ],
+    );
+  }
+
+  Widget _buildStatusFilterChip({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onSelected,
+    required ColorScheme colorScheme,
+  }) {
+    return ChoiceChip(
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+          color: isSelected ? colorScheme.onSecondaryContainer : colorScheme.onSurfaceVariant,
+        ),
+      ),
+      selected: isSelected,
+      selectedColor: colorScheme.secondaryContainer,
+      backgroundColor: Colors.transparent,
+      showCheckmark: false,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      visualDensity: VisualDensity.compact,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: isSelected ? colorScheme.secondary : colorScheme.outlineVariant,
+          width: isSelected ? 1.4 : 0.8,
+        ),
+      ),
+      onSelected: (_) {
+        HapticFeedback.selectionClick();
+        onSelected();
+      },
+    );
+  }
+
   Widget _buildCategoryFilterBar(ColorScheme colorScheme) {
     const categories = [
       'Todas',
@@ -560,8 +715,8 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     ];
 
     return Container(
-      height: 40,
-      margin: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 8),
+      height: 38,
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 2, bottom: 6),
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: categories.length,
@@ -582,7 +737,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             label: Text(
               label,
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 11.5,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                 color: isSelected
                     ? colorScheme.onPrimary
@@ -619,11 +774,30 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   }
 
   Widget _buildTasksList(ColorScheme colorScheme) {
-    final filteredTasks = _selectedCategory == null
-        ? _tasks
-        : _tasks.where((t) => t.category == _selectedCategory).toList();
+    final filteredTasks = _filteredTasks;
 
     if (filteredTasks.isEmpty) {
+      String emptyTitle = 'No hay tareas';
+      String emptySubtitle = 'Prueba ajustando los filtros o búsqueda';
+      IconData emptyIcon = Icons.filter_alt_off_rounded;
+
+      if (_searchQuery.isNotEmpty) {
+        emptyTitle = 'Sin resultados para "$_searchQuery"';
+        emptySubtitle = 'Intenta buscar con otra palabra clave';
+        emptyIcon = Icons.search_off_rounded;
+      } else if (_statusFilter == 'pending') {
+        emptyTitle = '¡Estás al día!';
+        emptySubtitle = 'No tienes tareas pendientes por realizar.';
+        emptyIcon = Icons.check_circle_outline_rounded;
+      } else if (_statusFilter == 'completed') {
+        emptyTitle = 'Sin tareas completadas';
+        emptySubtitle = 'Completa tus tareas marcando el círculo a la izquierda.';
+        emptyIcon = Icons.task_alt_rounded;
+      } else if (_selectedCategory != null) {
+        emptyTitle = 'Categoría "$_selectedCategory" vacía';
+        emptySubtitle = 'No hay recordatorios registrados bajo este filtro.';
+      }
+
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(32),
@@ -631,19 +805,43 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
-                Icons.filter_alt_off_rounded,
+                emptyIcon,
                 size: 48,
                 color: colorScheme.outline,
               ),
               const SizedBox(height: 12),
               Text(
-                'No hay tareas en la categoría "$_selectedCategory"',
+                emptyTitle,
                 style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                emptySubtitle,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
                   color: colorScheme.onSurfaceVariant,
                 ),
               ),
+              if (_searchQuery.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  icon: const Icon(Icons.clear_rounded, size: 16),
+                  label: const Text('Limpiar búsqueda'),
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    setState(() {
+                      _searchQuery = '';
+                      _searchController.clear();
+                      _isSearching = false;
+                    });
+                  },
+                ),
+              ],
             ],
           ),
         ),
