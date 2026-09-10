@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'models/task.dart';
@@ -144,9 +145,11 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     if (_isProcessingAI) return;
 
     if (_isListening) {
+      HapticFeedback.lightImpact();
       await _speechService.stopListening();
       await _onSpeechCompleted();
     } else {
+      HapticFeedback.lightImpact();
       setState(() {
         _isListening = true;
         _spokenText = '';
@@ -229,6 +232,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
         scheduledDate: task.scheduledDateTime,
       );
 
+      HapticFeedback.mediumImpact();
       if (mounted) {
         setState(() {
           _tasks.insert(0, task);
@@ -275,6 +279,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   }
 
   Future<void> _deleteTask(Task task) async {
+    HapticFeedback.mediumImpact();
     final originalIndex = _tasks.indexWhere((t) => t.id == task.id);
     await _notificationService.cancelNotification(task.id);
     await _taskService.deleteTask(task.id);
@@ -292,6 +297,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             label: 'Deshacer',
             textColor: Colors.amberAccent,
             onPressed: () async {
+              HapticFeedback.lightImpact();
               await _taskService.saveTask(task);
               if (!task.isCompleted &&
                   task.scheduledDateTime.isAfter(DateTime.now())) {
@@ -597,6 +603,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
               ),
             ),
             onSelected: (selected) {
+              HapticFeedback.selectionClick();
               setState(() {
                 if (cat == 'Todas') {
                   _selectedCategory = null;
@@ -652,6 +659,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
           key: ValueKey(task.id),
           task: task,
           onToggleComplete: () async {
+            HapticFeedback.selectionClick();
             setState(() {
               task.isCompleted = !task.isCompleted;
             });
