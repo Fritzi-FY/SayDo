@@ -26,6 +26,10 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SayDo necesita acceso al micrófono para que puedas dictar tus tareas y recordatorios por voz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>SayDo requiere reconocimiento de voz para convertir tus órdenes habladas en recordatorios inteligentes.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
