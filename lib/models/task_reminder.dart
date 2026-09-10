@@ -1,4 +1,7 @@
+import 'package:hive/hive.dart';
 import 'package:intl/intl.dart';
+
+typedef Task = TaskReminder;
 
 class TaskReminder {
   final int id;
@@ -70,5 +73,49 @@ class TaskReminder {
     } catch (_) {
       return '$fecha $hora';
     }
+  }
+}
+
+class TaskReminderAdapter extends TypeAdapter<TaskReminder> {
+  @override
+  final int typeId = 0;
+
+  @override
+  TaskReminder read(BinaryReader reader) {
+    final numOfFields = reader.readByte();
+    final fields = <int, dynamic>{
+      for (int i = 0; i < numOfFields; i++) reader.readByte(): reader.read(),
+    };
+    return TaskReminder(
+      id: fields[0] as int,
+      descripcion: fields[1] as String,
+      fecha: fields[2] as String,
+      hora: fields[3] as String,
+      scheduledDateTime: DateTime.parse(fields[4] as String),
+      isCompleted: fields[5] as bool? ?? false,
+      createdAt: fields[6] != null
+          ? DateTime.tryParse(fields[6] as String)
+          : null,
+    );
+  }
+
+  @override
+  void write(BinaryWriter writer, TaskReminder obj) {
+    writer
+      ..writeByte(7)
+      ..writeByte(0)
+      ..write(obj.id)
+      ..writeByte(1)
+      ..write(obj.descripcion)
+      ..writeByte(2)
+      ..write(obj.fecha)
+      ..writeByte(3)
+      ..write(obj.hora)
+      ..writeByte(4)
+      ..write(obj.scheduledDateTime.toIso8601String())
+      ..writeByte(5)
+      ..write(obj.isCompleted)
+      ..writeByte(6)
+      ..write(obj.createdAt.toIso8601String());
   }
 }

@@ -5,6 +5,7 @@ import 'models/task_reminder.dart';
 import 'services/gemini_service.dart';
 import 'services/notification_service.dart';
 import 'services/speech_service.dart';
+import 'services/task_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,6 +22,13 @@ Future<void> main() async {
     await dotenv.load(fileName: '.env');
   } catch (e) {
     debugPrint('No se pudo cargar el archivo .env: $e');
+  }
+
+  // Inicializar persistencia local con Hive
+  try {
+    await TaskService.instance.initialize();
+  } catch (e) {
+    debugPrint('Error al inicializar TaskService en main: $e');
   }
 
   // Inicializar servicio de notificaciones locales y timezone
@@ -83,6 +91,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   final SpeechService _speechService = SpeechService();
   final GeminiService _geminiService = GeminiService();
   final NotificationService _notificationService = NotificationService.instance;
+  final TaskService _taskService = TaskService.instance;
 
   final List<TaskReminder> _tasks = [];
   bool _isListening = false;
@@ -93,7 +102,21 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   @override
   void initState() {
     super.initState();
+    _loadTasksFromStorage();
     _initServices();
+  }
+
+  void _loadTasksFromStorage() {
+    try {
+      final storedTasks = _taskService.getTasks();
+      storedTasks.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      setState(() {
+        _tasks.clear();
+        _tasks.addAll(storedTasks);
+      });
+    } catch (e) {
+      debugPrint('Error al cargar tareas de Hive: $e');
+    }
   }
 
   Future<void> _initServices() async {
@@ -194,6 +217,9 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
       // Procesar orden con Gemini
       final reminder = await _geminiService.parseSpokenText(input);
 
+      // Guardar explícitamente en la base de datos local Hive
+      await _taskService.saveTask(reminder);
+
       // Programar notificación en el sistema
       await _notificationService.scheduleNotification(
         id: reminder.id,
@@ -249,6 +275,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
 
   Future<void> _deleteTask(TaskReminder task) async {
     await _notificationService.cancelNotification(task.id);
+    await _taskService.deleteTask(task.id);
     setState(() {
       _tasks.removeWhere((t) => t.id == task.id);
     });
@@ -555,10 +582,11 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
               tooltip: 'Eliminar recordatorio',
               onPressed: () => _deleteTask(task),
             ),
-            onTap: () {
+            onTap: () async {
               setState(() {
                 task.isCompleted = !task.isCompleted;
               });
+              await _taskService.updateTask(task);
             },
           ),
         );
