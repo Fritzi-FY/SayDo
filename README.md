@@ -1,6 +1,6 @@
-# saydo
+# SayDo
 
-A new Flutter project.
+Gestor inteligente de tareas y recordatorios por voz impulsado por IA con Google Gemini.
 
 ## Getting Started
 

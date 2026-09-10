@@ -1,6 +1,6 @@
 {
-    "name": "saydo",
-    "short_name": "saydo",
+    "name": "SayDo",
+    "short_name": "SayDo",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
