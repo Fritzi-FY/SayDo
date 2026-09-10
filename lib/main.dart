@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:intl/date_symbol_data_local.dart';
-import 'models/task_reminder.dart';
+import 'models/task.dart';
 import 'services/gemini_service.dart';
 import 'services/notification_service.dart';
 import 'services/speech_service.dart';
@@ -93,7 +93,8 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   final NotificationService _notificationService = NotificationService.instance;
   final TaskService _taskService = TaskService.instance;
 
-  final List<TaskReminder> _tasks = [];
+  final List<Task> _tasks = [];
+  String? _selectedCategory; // null = Todas
   bool _isListening = false;
   bool _isProcessingAI = false;
   String _spokenText = '';
@@ -215,22 +216,22 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
       }
 
       // Procesar orden con Gemini
-      final reminder = await _geminiService.parseSpokenText(input);
+      final task = await _geminiService.parseSpokenText(input);
 
       // Guardar explícitamente en la base de datos local Hive
-      await _taskService.saveTask(reminder);
+      await _taskService.saveTask(task);
 
       // Programar notificación en el sistema
       await _notificationService.scheduleNotification(
-        id: reminder.id,
-        title: 'SayDo: Recordatorio',
-        body: reminder.descripcion,
-        scheduledDate: reminder.scheduledDateTime,
+        id: task.id,
+        title: 'SayDo: Recordatorio [${task.priority}]',
+        body: '${task.categoryEmoji} ${task.title}',
+        scheduledDate: task.scheduledDateTime,
       );
 
       if (mounted) {
         setState(() {
-          _tasks.insert(0, reminder);
+          _tasks.insert(0, task);
           _statusMessage = '¡Tarea agendada con éxito!';
           _spokenText = '';
         });
@@ -238,7 +239,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Alarma programada: "${reminder.descripcion}" para el ${reminder.fecha} a las ${reminder.hora}',
+              'Alarma programada: "${task.title}" [${task.categoryEmoji} ${task.category} • ${task.priority}] para el ${task.fecha} a las ${task.hora}',
             ),
             backgroundColor: Colors.green.shade700,
             duration: const Duration(seconds: 4),
@@ -273,7 +274,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     }
   }
 
-  Future<void> _deleteTask(TaskReminder task) async {
+  Future<void> _deleteTask(Task task) async {
     await _notificationService.cancelNotification(task.id);
     await _taskService.deleteTask(task.id);
     setState(() {
@@ -282,7 +283,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Recordatorio "${task.descripcion}" cancelado.'),
+          content: Text('Recordatorio "${task.title}" cancelado.'),
           duration: const Duration(seconds: 2),
         ),
       );
@@ -332,6 +333,9 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
           children: [
             // Banner superior de estado y transcripción en vivo
             _buildStatusHeader(colorScheme),
+
+            // Selector horizontal de categoría
+            if (_tasks.isNotEmpty) _buildCategoryFilterBar(colorScheme),
 
             // Lista de tareas agendadas
             Expanded(
@@ -486,11 +490,15 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    '• "Comprar medicinas mañana a las 4 de la tarde"',
+                    '• "Comprar medicinas urgente mañana a las 4 de la tarde"',
                     style: TextStyle(fontSize: 12),
                   ),
                   const Text(
-                    '• "Reunión de proyecto el viernes a las 11:30"',
+                    '• "Reunión de balance del proyecto el viernes a las 11:30"',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                  const Text(
+                    '• "Pagar factura de luz sin falta hoy a las 6 pm"',
                     style: TextStyle(fontSize: 12),
                   ),
                 ],
@@ -502,93 +510,121 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     );
   }
 
-  Widget _buildTasksList(ColorScheme colorScheme) {
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-      itemCount: _tasks.length,
-      itemBuilder: (context, index) {
-        final task = _tasks[index];
-        return Card(
-          margin: const EdgeInsets.only(bottom: 12),
-          elevation: 0,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: colorScheme.outlineVariant),
-          ),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 8,
-            ),
-            leading: CircleAvatar(
-              backgroundColor: task.isCompleted
-                  ? Colors.green.shade100
-                  : colorScheme.primaryContainer,
-              child: Icon(
-                task.isCompleted
-                    ? Icons.check_circle_outline
-                    : Icons.alarm_rounded,
-                color: task.isCompleted
-                    ? Colors.green.shade800
-                    : colorScheme.onPrimaryContainer,
-              ),
-            ),
-            title: Text(
-              task.descripcion,
+  Widget _buildCategoryFilterBar(ColorScheme colorScheme) {
+    const categories = [
+      'Todas',
+      'Trabajo',
+      'Compras',
+      'Salud',
+      'Finanzas',
+      'Personal'
+    ];
+
+    return Container(
+      height: 40,
+      margin: const EdgeInsets.only(left: 16, right: 16, top: 4, bottom: 8),
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final cat = categories[index];
+          final isSelected = (cat == 'Todas' && _selectedCategory == null) ||
+              (_selectedCategory == cat);
+
+          String label = cat;
+          if (cat == 'Trabajo') label = '💼 Trabajo';
+          if (cat == 'Compras') label = '🛒 Compras';
+          if (cat == 'Salud') label = '💊 Salud';
+          if (cat == 'Finanzas') label = '💰 Finanzas';
+          if (cat == 'Personal') label = '👤 Personal';
+
+          return ChoiceChip(
+            label: Text(
+              label,
               style: TextStyle(
-                fontWeight: FontWeight.w600,
-                decoration:
-                    task.isCompleted ? TextDecoration.lineThrough : null,
+                fontSize: 12,
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                color: isSelected
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSurfaceVariant,
               ),
             ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 6),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.calendar_today_rounded,
-                    size: 14,
-                    color: colorScheme.secondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    task.fecha,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colorScheme.secondary,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Icon(
-                    Icons.access_time_rounded,
-                    size: 14,
-                    color: colorScheme.secondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    task.hora,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.secondary,
-                    ),
-                  ),
-                ],
+            selected: isSelected,
+            selectedColor: colorScheme.primary,
+            backgroundColor:
+                colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+            showCheckmark: false,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(
+                color: isSelected
+                    ? colorScheme.primary
+                    : colorScheme.outlineVariant,
               ),
             ),
-            trailing: IconButton(
-              icon: const Icon(Icons.delete_outline_rounded),
-              color: colorScheme.error,
-              tooltip: 'Eliminar recordatorio',
-              onPressed: () => _deleteTask(task),
-            ),
-            onTap: () async {
+            onSelected: (selected) {
               setState(() {
-                task.isCompleted = !task.isCompleted;
+                if (cat == 'Todas') {
+                  _selectedCategory = null;
+                } else {
+                  _selectedCategory = selected ? cat : null;
+                }
               });
-              await _taskService.updateTask(task);
             },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildTasksList(ColorScheme colorScheme) {
+    final filteredTasks = _selectedCategory == null
+        ? _tasks
+        : _tasks.where((t) => t.category == _selectedCategory).toList();
+
+    if (filteredTasks.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.filter_alt_off_rounded,
+                size: 48,
+                color: colorScheme.outline,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'No hay tareas en la categoría "$_selectedCategory"',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 96),
+      itemCount: filteredTasks.length,
+      itemBuilder: (context, index) {
+        final task = filteredTasks[index];
+        return TaskCard(
+          key: ValueKey(task.id),
+          task: task,
+          onToggleComplete: () async {
+            setState(() {
+              task.isCompleted = !task.isCompleted;
+            });
+            await _taskService.updateTask(task);
+          },
+          onDelete: () => _deleteTask(task),
         );
       },
     );
@@ -625,6 +661,278 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
                 ? 'Procesando...'
                 : 'Hablar para Agendar',
         style: const TextStyle(fontWeight: FontWeight.bold),
+      ),
+    );
+  }
+}
+
+/// Tarjeta de tarea con chip de categoría, indicador visual de prioridad Alta,
+/// controles de estado y fecha/hora programada.
+class TaskCard extends StatelessWidget {
+  final Task task;
+  final VoidCallback onToggleComplete;
+  final VoidCallback onDelete;
+
+  const TaskCard({
+    super.key,
+    required this.task,
+    required this.onToggleComplete,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final isHighPriority = task.isHighPriority;
+
+    final borderColor = isHighPriority
+        ? const Color(0xFFEF4444) // Borde rojo de alerta para prioridad Alta
+        : colorScheme.outlineVariant;
+
+    final cardBgColor = isHighPriority
+        ? (isDark ? const Color(0xFF2B1416) : const Color(0xFFFFF7F7))
+        : (isDark ? colorScheme.surfaceContainerLow : Colors.white);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: isHighPriority ? 2 : 0,
+      shadowColor: isHighPriority
+          ? Colors.red.withValues(alpha: 0.25)
+          : Colors.transparent,
+      color: cardBgColor,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: borderColor,
+          width: isHighPriority ? 1.8 : 1.0,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onToggleComplete,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Fila superior: Chip de Categoría e Indicador de Prioridad
+              Row(
+                children: [
+                  // Chip de Categoría con icono/emoji y color temático
+                  _buildCategoryChip(context, isDark),
+                  const SizedBox(width: 8),
+
+                  // Indicador visual de Prioridad Alta o estándar
+                  if (isHighPriority)
+                    _buildHighPriorityBadge(context, isDark)
+                  else
+                    _buildStandardPriorityBadge(context, isDark),
+
+                  const Spacer(),
+
+                  // Botón para eliminar recordatorio
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                    color: colorScheme.error,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Eliminar recordatorio',
+                    onPressed: onDelete,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Fila central: Checkbox circular + Título de la tarea
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: onToggleComplete,
+                    child: Container(
+                      width: 22,
+                      height: 22,
+                      decoration: BoxDecoration(
+                        color: task.isCompleted
+                            ? Colors.green.shade600
+                            : Colors.transparent,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: task.isCompleted
+                              ? Colors.green.shade600
+                              : (isHighPriority
+                                  ? const Color(0xFFEF4444)
+                                  : colorScheme.outline),
+                          width: 2,
+                        ),
+                      ),
+                      child: task.isCompleted
+                          ? const Icon(
+                              Icons.check,
+                              size: 14,
+                              color: Colors.white,
+                            )
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      task.title,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: task.isCompleted
+                            ? colorScheme.onSurface.withValues(alpha: 0.5)
+                            : colorScheme.onSurface,
+                        decoration: task.isCompleted
+                            ? TextDecoration.lineThrough
+                            : null,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // Fila inferior: Fecha y Hora agendada
+              Row(
+                children: [
+                  Icon(
+                    Icons.calendar_today_rounded,
+                    size: 13,
+                    color: colorScheme.secondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    task.fecha,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colorScheme.secondary,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Icon(
+                    Icons.access_time_rounded,
+                    size: 13,
+                    color: colorScheme.secondary,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    task.hora,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: colorScheme.secondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Chip visual representativo de la categoría de la tarea
+  Widget _buildCategoryChip(BuildContext context, bool isDark) {
+    final catColor = task.categoryColor;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: catColor.withValues(alpha: isDark ? 0.25 : 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: catColor.withValues(alpha: isDark ? 0.5 : 0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            task.categoryEmoji,
+            style: const TextStyle(fontSize: 12),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            task.category,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: isDark ? catColor.withValues(alpha: 0.9) : catColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Indicador visual destacado para prioridad Alta (punto rojo + texto de alerta)
+  Widget _buildHighPriorityBadge(BuildContext context, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF4C1D1D) : const Color(0xFFFEE2E2),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFEF4444),
+          width: 1.2,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 7,
+            height: 7,
+            decoration: const BoxDecoration(
+              color: Color(0xFFDC2626),
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          const Text(
+            'Prioridad Alta',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFDC2626),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Badge de prioridad Media o Baja
+  Widget _buildStandardPriorityBadge(BuildContext context, bool isDark) {
+    final isMedia = task.priority == 'Media';
+    final pColor = isMedia
+        ? const Color(0xFFD97706) // Ámbar
+        : const Color(0xFF6B7280); // Gris neutro
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: pColor.withValues(alpha: isDark ? 0.18 : 0.08),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: pColor.withValues(alpha: 0.25),
+          width: 1,
+        ),
+      ),
+      child: Text(
+        task.priority,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: pColor,
+        ),
       ),
     );
   }
