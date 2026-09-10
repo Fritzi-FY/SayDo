@@ -7,6 +7,7 @@ import 'services/gemini_service.dart';
 import 'services/notification_service.dart';
 import 'services/speech_service.dart';
 import 'services/task_service.dart';
+import 'widgets/task_form_sheet.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -309,6 +310,55 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
     }
   }
 
+  Future<void> _openTaskFormModal({Task? taskToEdit}) async {
+    final result = await TaskFormSheet.show(context, task: taskToEdit);
+    if (result == null) return;
+
+    final isEditing = taskToEdit != null;
+
+    // Guardar en Hive
+    await _taskService.saveTask(result);
+
+    // Cancelar notificación previa y reprogramar si corresponde
+    await _notificationService.cancelNotification(result.id);
+    if (!result.isCompleted &&
+        result.scheduledDateTime.isAfter(DateTime.now())) {
+      await _notificationService.scheduleNotification(
+        id: result.id,
+        title: 'SayDo: Recordatorio [${result.priority}]',
+        body: '${result.categoryEmoji} ${result.title}',
+        scheduledDate: result.scheduledDateTime,
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        if (isEditing) {
+          final index = _tasks.indexWhere((t) => t.id == result.id);
+          if (index != -1) {
+            _tasks[index] = result;
+          } else {
+            _tasks.insert(0, result);
+          }
+        } else {
+          _tasks.insert(0, result);
+        }
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isEditing
+                ? 'Recordatorio "${result.title}" actualizado.'
+                : 'Recordatorio "${result.title}" agendado con éxito.',
+          ),
+          backgroundColor: Colors.green.shade700,
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
+  }
+
   Future<void> _deleteTask(Task task) async {
     HapticFeedback.mediumImpact();
     final originalIndex = _tasks.indexWhere((t) => t.id == task.id);
@@ -432,17 +482,27 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
                 });
               },
             )
-          else if (_tasks.isNotEmpty)
+          else ...[
             IconButton(
-              icon: const Icon(Icons.search_rounded),
-              tooltip: 'Buscar tareas',
+              icon: const Icon(Icons.add_task_rounded),
+              tooltip: 'Crear recordatorio manual',
               onPressed: () {
                 HapticFeedback.lightImpact();
-                setState(() {
-                  _isSearching = true;
-                });
+                _openTaskFormModal();
               },
             ),
+            if (_tasks.isNotEmpty)
+              IconButton(
+                icon: const Icon(Icons.search_rounded),
+                tooltip: 'Buscar tareas',
+                onPressed: () {
+                  HapticFeedback.lightImpact();
+                  setState(() {
+                    _isSearching = true;
+                  });
+                },
+              ),
+          ],
         ],
       ),
       body: SafeArea(
@@ -863,6 +923,7 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
             });
             await _taskService.updateTask(task);
           },
+          onEdit: () => _openTaskFormModal(taskToEdit: task),
           onDelete: () => _deleteTask(task),
         );
       },
@@ -910,12 +971,14 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
 class TaskCard extends StatelessWidget {
   final Task task;
   final VoidCallback onToggleComplete;
+  final VoidCallback onEdit;
   final VoidCallback onDelete;
 
   const TaskCard({
     super.key,
     required this.task,
     required this.onToggleComplete,
+    required this.onEdit,
     required this.onDelete,
   });
 
@@ -950,7 +1013,7 @@ class TaskCard extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
-        onTap: onToggleComplete,
+        onTap: onEdit,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           child: Column(
@@ -970,6 +1033,18 @@ class TaskCard extends StatelessWidget {
                     _buildStandardPriorityBadge(context, isDark),
 
                   const Spacer(),
+
+                  // Botón para editar
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined, size: 19),
+                    color: colorScheme.onSurfaceVariant,
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    tooltip: 'Editar recordatorio',
+                    onPressed: onEdit,
+                  ),
+                  const SizedBox(width: 8),
 
                   // Botón para eliminar recordatorio
                   IconButton(
