@@ -275,16 +275,49 @@ class _SayDoHomePageState extends State<SayDoHomePage> {
   }
 
   Future<void> _deleteTask(Task task) async {
+    final originalIndex = _tasks.indexWhere((t) => t.id == task.id);
     await _notificationService.cancelNotification(task.id);
     await _taskService.deleteTask(task.id);
     setState(() {
       _tasks.removeWhere((t) => t.id == task.id);
     });
+
     if (mounted) {
+      ScaffoldMessenger.of(context).removeCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Recordatorio "${task.title}" cancelado.'),
-          duration: const Duration(seconds: 2),
+          content: Text('Recordatorio "${task.title}" eliminado.'),
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'Deshacer',
+            textColor: Colors.amberAccent,
+            onPressed: () async {
+              await _taskService.saveTask(task);
+              if (!task.isCompleted &&
+                  task.scheduledDateTime.isAfter(DateTime.now())) {
+                await _notificationService.scheduleNotification(
+                  id: task.id,
+                  title: 'SayDo: Recordatorio [${task.priority}]',
+                  body: '${task.categoryEmoji} ${task.title}',
+                  scheduledDate: task.scheduledDateTime,
+                );
+              }
+              if (mounted) {
+                setState(() {
+                  final insertAt = originalIndex != -1 && originalIndex <= _tasks.length
+                      ? originalIndex
+                      : 0;
+                  _tasks.insert(insertAt, task);
+                });
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Recordatorio "${task.title}" restaurado.'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+          ),
         ),
       );
     }
